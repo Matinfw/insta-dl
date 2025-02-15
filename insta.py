@@ -4,9 +4,9 @@ import os
 from pyrogram import Client, filters
 
 # Created By @ImSoheilOfficial
-api_id = 21294482  # api_id خود را وارد کنید
-api_hash = 990ec4db2f39b94eb696f2058369b931  # api_hash خود را وارد کنید
-bot_token = 8034043748:AAF1u8VjlS4uwYTwaBrKgH8vxbGoPXZeGX0  # توکن ربات خود را وارد کنید
+api_id ="21294482"  # api_id خود را وارد کنید
+api_hash = "990ec4db2f39b94eb696f2058369b931"  # api_hash خود را وارد کنید
+bot_token ="8034043748:AAF1u8VjlS4uwYTwaBrKgH8vxbGoPXZeGX0"  # توکن ربات خود را وارد کنید
 
 app = Client("my_bot", api_id=api_id, api_hash=api_hash, bot_token=bot_token)
 
