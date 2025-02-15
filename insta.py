@@ -71,4 +71,5 @@ async def handle_message(client, message):
         pass  # اگر لینک از نوع اینستاگرام نبود، هیچ کاری انجام نمی‌دهیم
 
 if __name__ == "__main__":
-    app.run()
+    app.run()  # این خط مهم است!
+
