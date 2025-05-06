@@ -1,75 +1,137 @@
-import requests
-import uuid
+
 import os
-from pyrogram import Client, filters
+import logging
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackContext, CallbackQueryHandler
+import yt_dlp
+import requests
+from urllib.parse import urlparse
 
-# Created By @ImSoheilOfficial
-api_id ="21294482"  # api_id خود را وارد کنید
-api_hash = "990ec4db2f39b94eb696f2058369b931"  # api_hash خود را وارد کنید
-bot_token ="8034043748:AAF1u8VjlS4uwYTwaBrKgH8vxbGoPXZeGX0"  # توکن ربات خود را وارد کنید
+# تنظیم لاگینگ
+logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-app = Client("my_bot", api_id=api_id, api_hash=api_hash, bot_token=bot_token)
+# توکن ربات خود را اینجا قرار دهید
+TOKEN = 'YOUR_BOT_TOKEN'
 
-# تابع برای گرفتن لینک ویدیو از API
-def get_video_url(link):
-    api_url = f"https://api.silohost.ir/api/api.php?link={link}"
-    response = requests.get(api_url)
-    if response.status_code == 200:
-        data = response.json()
-        if data.get('status') == True:
-            if data['data'].get('status') == "redirect":
-                return data['data'].get('url')
-            else:
-                print("Unexpected data status:", data['data'].get('status'))
-        else:
-            print("API request failed:", data.get('message'))
-    else:
-        print("API request failed with status code:", response.status_code)
-    return None
+def start(update: Update, context: CallbackContext) -> None:
+    """دستور شروع"""
+    welcome_message = """
+    سلام! 👋
+    به ربات دانلودر خوش آمدید!
+    
+    لینک ویدیو را از یکی از پلتفرم‌های زیر ارسال کنید:
+    - یوتیوب 🎥
+    - اینستاگرام 📸
+    - آپارات 🎬
+    """
+    update.message.reply_text(welcome_message)
 
+def get_platform(url: str) -> str:
+    """تشخیص پلتفرم از URL"""
+    domain = urlparse(url).netloc
+    if 'youtube.com' in domain or 'youtu.be' in domain:
+        return 'youtube'
+    elif 'instagram.com' in domain:
+        return 'instagram'
+    elif 'aparat.com' in domain:
+        return 'aparat'
+    return 'unknown'
 
-@app.on_message(filters.text)
-async def handle_message(client, message):
-    link = message.text
-    
-    # بررسی لینک اینستاگرام
-    if link.startswith("https://www.instagram.com") or link.startswith("http://www.instagram.com"):
-        reply_message = await message.reply_text("در حال پردازش لینک...\nلطفا منتظر بمانید!", reply_to_message_id=message.id)
-        
-        # دریافت URL ویدیو
-        video_url = get_video_url(link)
-        if video_url:
-            file_name = f"video_{uuid.uuid4().hex}.mp4"
-            
-            # دانلود ویدیو با استفاده از requests
-            chunk_size = 1024 * 500  # 500KB per chunk
-            with requests.get(video_url, stream=True) as r:
-                total_size = int(r.headers.get('content-length', 0))
-                if total_size == 0:
-                    await reply_message.edit_text("مشکلی در دریافت اطلاعات اندازه ویدیو پیش آمده است.")
-                    return
+def download_video(url: str, platform: str) -> str:
+    """دانلود ویدیو"""
+    try:
+        ydl_opts = {
+            'format': 'best',
+            'outtmpl': 'downloads/%(title)s.%(ext)s',
+            'quiet': True,
+        }
+        
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=True)
+            return os.path.join('downloads', f"{info['title']}.{info['ext']}")
+    except Exception as e:
+        logger.error(f"Error downloading video: {str(e)}")
+        return None
 
-                downloaded_size = 0
-                with open(file_name, 'wb') as f:
-                    for chunk in r.iter_content(chunk_size=chunk_size):
-                        f.write(chunk)
-                        downloaded_size += len(chunk)
-                        done = int(50 * downloaded_size / total_size)  # میزان پیشرفت دانلود
-                        if downloaded_size % (500 * 1024) == 0:  # هر نیم مگابایت پیشرفت
-                            await reply_message.edit_text(f"در حال دانلود ویدیو... {done}%")
-            
-            # ارسال ویدیو به تلگرام
-            await reply_message.edit_text("دانلود کامل شد. در حال آپلود ویدیو...")
-            await client.send_video(chat_id=message.chat.id, video=file_name, reply_to_message_id=message.id)
+def handle_url(update: Update, context: CallbackContext) -> None:
+    """پردازش URL های ارسالی"""
+    url = update.message.text
+    chat_id = update.message.chat_id
+    
+    # ارسال پیام در حال پردازش
+    processing_message = update.message.reply_text("در حال پردازش لینک... ⏳")
+    
+    platform = get_platform(url)
+    if platform == 'unknown':
+        processing_message.edit_text("لینک نامعتبر است! ❌")
+        return
+    
+    try:
+        # دانلود ویدیو
+        video_path = download_video(url, platform)
+        
+        if video_path and os.path.exists(video_path):
+            # ارسال ویدیو
+            with open(video_path, 'rb') as video_file:
+                context.bot.send_video(
+                    chat_id=chat_id,
+                    video=video_file,
+                    caption=f"دانلود شده از {platform} ✅"
+                )
+            # پاک کردن فایل
+            os.remove(video_path)
+            processing_message.delete()
+        else:
+            processing_message.edit_text("خطا در دانلود ویدیو! ❌")
+            
+    except Exception as e:
+        logger.error(f"Error: {str(e)}")
+        processing_message.edit_text("خطا در پردازش ویدیو! ❌")
 
-            # حذف فایل ویدیو بعد از ارسال
-            os.remove(file_name)
-        else:
-            await reply_message.edit_text("مشکلی در دریافت ویدیو از لینک مورد نظر پیش آمده است.")
-    
-    else:
-        pass  # اگر لینک از نوع اینستاگرام نبود، هیچ کاری انجام نمی‌دهیم
+def help_command(update: Update, context: CallbackContext) -> None:
+    """دستور راهنما"""
+    help_text = """
+    🔹 راهنمای استفاده از ربات:
+    
+    1️⃣ لینک ویدیو را کپی کنید
+    2️⃣ لینک را برای ربات ارسال کنید
+    3️⃣ منتظر دانلود و ارسال ویدیو باشید
+    
+    🔸 پلتفرم‌های پشتیبانی شده:
+    - یوتیوب
+    - اینستاگرام
+    - آپارات
+    
+    ⚠️ در صورت بروز مشکل، دوباره تلاش کنید.
+    """
+    update.message.reply_text(help_text)
 
-if __name__ == "__main__":
-    app.run()  # این خط مهم است!
+def error_handler(update: Update, context: CallbackContext) -> None:
+    """مدیریت خطاها"""
+    logger.error(f"Error: {context.error}")
+    if update:
+        update.message.reply_text("خطایی رخ داد! لطفا دوباره تلاش کنید. ❌")
 
+def main() -> None:
+    """تابع اصلی ربات"""
+    # ایجاد پوشه دانلود‌ها
+    if not os.path.exists('downloads'):
+        os.makedirs('downloads')
+    
+    # راه‌اندازی ربات
+    updater = Updater(TOKEN)
+    dispatcher = updater.dispatcher
+
+    # اضافه کردن هندلرها
+    dispatcher.add_handler(CommandHandler("start", start))
+    dispatcher.add_handler(CommandHandler("help", help_command))
+    dispatcher.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_url))
+    dispatcher.add_error_handler(error_handler)
+
+    # شروع ربات
+    updater.start_polling()
+    updater.idle()
+
+if __name__ == '__main__':
+    main()
